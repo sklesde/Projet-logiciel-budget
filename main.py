@@ -263,18 +263,24 @@ def calcul_et_tri(df):
     df_somme = df_somme[['Semaine', 'Classification', 'Total']]
     
     return df_somme
-    
 
-import pandas as pd
 from openpyxl import load_workbook
-
+from openpyxl.styles import PatternFill, Font
+import pandas as pd
 
 def envoie_donnees(df, file_path):
+
     # Liste des mois
     nom_feuille = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
     
-    # Préparation des mois
-    mois_dict = {i+1: mois for i, mois in enumerate(nom_feuille)}
+    # Création du dictionnaire des mois
+    mois_dict = {i+1: nom_feuille[i] for i in range(12)}
+    
+    # Liste des classifications autorisées
+    classifications_depenses = [
+        "Courses", "Snacks", "Restaurants", "Sport", "Vêtements/Coiffure", 
+        "Loisirs", "Divers", "Commande Internet", "Transports", "Autre 1", "Autre 2"
+    ]
     
     # Ouvrir le fichier Excel existant
     try:
@@ -282,12 +288,38 @@ def envoie_donnees(df, file_path):
     except FileNotFoundError:
         raise FileNotFoundError(f"Le fichier {file_path} n'a pas été trouvé.")
     
-    # Parcours des semaines dans df
+    # Parcourir toutes les feuilles du workbook
+    for ws in wb.worksheets:
+        # Supprimer les données des colonnes I et J à partir de la ligne 12
+        for row in range(12, ws.max_row + 1):
+            ws.cell(row=row, column=9).value = None  # Colonne I
+            ws.cell(row=row, column=10).value = None  # Colonne J
+        
+        # Forcer le remplissage de fond sans couleur (aucun remplissage)
+        for row in range(12, ws.max_row + 1):
+            ws.cell(row=row, column=9).fill = PatternFill(fill_type=None)  # Colonne I
+            ws.cell(row=row, column=10).fill = PatternFill(fill_type=None)  # Colonne J
+
+    # Dictionnaire pour collecter les données par semaine
+    semaine_data = {}
+    
+    # Collecte des données par semaine
     for index, row in df.iterrows():
         semaine = row["Semaine"]
         classification = row["Classification"]
         total = row["Total"]
         
+        # Vérifier si la classification fait partie des classifications autorisées (de type "dépenses")
+        if classification not in classifications_depenses:
+            continue  # Si ce n'est pas une classification de type dépenses, on passe à la suivante
+        
+        # Ajouter les données à la semaine correspondante dans le dictionnaire
+        if semaine not in semaine_data:
+            semaine_data[semaine] = []
+        semaine_data[semaine].append((classification, total))
+    
+    # Traitement des données par mois
+    for semaine, data in semaine_data.items():
         # Extraction des dates de la semaine
         start_date, end_date = semaine.split(" - ")
         start_date = pd.to_datetime(start_date)
@@ -312,12 +344,62 @@ def envoie_donnees(df, file_path):
         # Sélectionner la feuille du mois
         ws = wb[mois_nom]
         
-        # Ajouter les données à la feuille
-        ws.append([semaine, classification, total])
+        # Trouver la première ligne vide à partir de la ligne 12 (colonnes I et J)
+        row_to_insert = 12
+        while ws.cell(row=row_to_insert, column=9).value is not None:  # Vérifie si la cellule dans la colonne I est vide
+            row_to_insert += 1
         
-        # Sauvegarder uniquement la feuille active après l'ajout
-        wb.save(file_path)
-
+        # Ajouter la semaine uniquement dans la feuille correspondant au mois
+        week_cell = ws.cell(row=row_to_insert, column=9, value=f"Semaine: {semaine}")
+        
+        # Colorier la cellule de la semaine avec une couleur orange clair
+        orange_fill = PatternFill(start_color="FFCC99", end_color="FFCC99", fill_type="solid")
+        week_cell.fill = orange_fill
+        
+        row_to_insert += 1
+        
+        # Variable pour calculer la somme des totaux pour la semaine et pour le mois
+        total_depenses_semaine = 0
+        total_depenses_mois = 0  # Somme pour le mois
+        
+        # Ajouter les classifications et leurs totaux dans les colonnes I et J
+        for classification, total in data:
+            # Ajouter la classification avec aucun fond et police non-gras
+            classification_cell = ws.cell(row=row_to_insert, column=9, value=classification)  # Colonne I
+            classification_cell.fill = PatternFill(fill_type=None)  # Aucun fond
+            classification_cell.font = Font(bold=False)  # Police non grasse
+            
+            # Ajouter le total dans la colonne J avec aucun fond et police non-gras
+            total_cell = ws.cell(row=row_to_insert, column=10, value=total)  # Colonne J
+            total_cell.fill = PatternFill(fill_type=None)  # Aucun fond
+            total_cell.font = Font(bold=False)  # Police non grasse
+            
+            # Ajouter le total au calcul de la somme des dépenses de la semaine et du mois
+            total_depenses_semaine += total
+            total_depenses_mois += total
+            
+            row_to_insert += 1
+        
+        # Ajouter le total des dépenses pour la semaine en **gras**
+        total_label_cell = ws.cell(row=row_to_insert, column=9, value="TOTAL DEPENSES SEMAINE")
+        total_label_cell.font = Font(bold=True)  # Police en gras
+        
+        # Ajouter la somme des dépenses de la semaine en **gras**
+        total_value_cell = ws.cell(row=row_to_insert, column=10, value=total_depenses_semaine)
+        total_value_cell.font = Font(bold=True)  # Police en gras
+        
+        row_to_insert += 1
+        
+    # Ajouter le total des dépenses pour le mois à la fin de toutes les semaines du mois
+    total_label_cell_mois = ws.cell(row=row_to_insert, column=9, value="TOTAL DEPENSES MOIS")
+    total_label_cell_mois.font = Font(bold=False)  # Police non grasse
+    
+    # Ajouter la somme des dépenses du mois
+    total_value_cell_mois = ws.cell(row=row_to_insert, column=10, value=total_depenses_mois)
+    total_value_cell_mois.font = Font(bold=False)  # Police non grasse
+    
+    # Sauvegarder le fichier après avoir ajouté le total des dépenses du mois
+    wb.save(file_path)
 
 
 def enregistrement(data_cp, path_data, budget_mensuel_categories, budget_mensuel_donnees, file_path):
