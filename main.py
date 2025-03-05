@@ -3,6 +3,8 @@ from pandas import read_csv, read_excel, to_datetime, to_numeric, ExcelWriter
 import pandas as pd
 from datetime import date
 import shutil
+from openpyxl import load_workbook
+from openpyxl.styles import PatternFill, Font
 
 
 #%%
@@ -264,142 +266,98 @@ def calcul_et_tri(df):
     
     return df_somme
 
-from openpyxl import load_workbook
-from openpyxl.styles import PatternFill, Font
-import pandas as pd
+
+
+
 
 def envoie_donnees(df, file_path):
-
-    # Liste des mois
     nom_feuille = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
-    
-    # Création du dictionnaire des mois
     mois_dict = {i+1: nom_feuille[i] for i in range(12)}
-    
-    # Liste des classifications autorisées
     classifications_depenses = [
         "Courses", "Snacks", "Restaurants", "Sport", "Vêtements/Coiffure", 
         "Loisirs", "Divers", "Commande Internet", "Transports", "Autre 1", "Autre 2"
     ]
     
-    # Ouvrir le fichier Excel existant
     try:
         wb = load_workbook(file_path)
     except FileNotFoundError:
         raise FileNotFoundError(f"Le fichier {file_path} n'a pas été trouvé.")
     
-    # Parcourir toutes les feuilles du workbook
     for ws in wb.worksheets:
-        # Supprimer les données des colonnes I et J à partir de la ligne 12
         for row in range(12, ws.max_row + 1):
             ws.cell(row=row, column=9).value = None  # Colonne I
             ws.cell(row=row, column=10).value = None  # Colonne J
-        
-        # Forcer le remplissage de fond sans couleur (aucun remplissage)
-        for row in range(12, ws.max_row + 1):
-            ws.cell(row=row, column=9).fill = PatternFill(fill_type=None)  # Colonne I
-            ws.cell(row=row, column=10).fill = PatternFill(fill_type=None)  # Colonne J
-
-    # Dictionnaire pour collecter les données par semaine
+            ws.cell(row=row, column=9).fill = PatternFill(fill_type=None)
+            ws.cell(row=row, column=10).fill = PatternFill(fill_type=None)
+    
     semaine_data = {}
     
-    # Collecte des données par semaine
     for index, row in df.iterrows():
         semaine = row["Semaine"]
         classification = row["Classification"]
         total = row["Total"]
         
-        # Vérifier si la classification fait partie des classifications autorisées (de type "dépenses")
         if classification not in classifications_depenses:
-            continue  # Si ce n'est pas une classification de type dépenses, on passe à la suivante
+            continue
         
-        # Ajouter les données à la semaine correspondante dans le dictionnaire
         if semaine not in semaine_data:
             semaine_data[semaine] = []
         semaine_data[semaine].append((classification, total))
     
-    # Traitement des données par mois
+    mois_totaux = {}
+    
     for semaine, data in semaine_data.items():
-        # Extraction des dates de la semaine
         start_date, end_date = semaine.split(" - ")
         start_date = pd.to_datetime(start_date)
         end_date = pd.to_datetime(end_date)
         
-        # Compter les jours par mois
         jours_par_mois = {i: 0 for i in range(1, 13)}
-        
-        # Compter le nombre de jours par mois
         for single_date in pd.date_range(start=start_date, end=end_date):
             mois = single_date.month
             jours_par_mois[mois] += 1
         
-        # Trouver le mois avec le plus grand nombre de jours
         mois_max = max(jours_par_mois, key=jours_par_mois.get)
         mois_nom = mois_dict[mois_max]
         
-        # Vérifier si la feuille pour le mois existe dans le fichier Excel
         if mois_nom not in wb.sheetnames:
             raise ValueError(f"La feuille {mois_nom} n'existe pas dans le fichier.")
         
-        # Sélectionner la feuille du mois
         ws = wb[mois_nom]
-        
-        # Trouver la première ligne vide à partir de la ligne 12 (colonnes I et J)
         row_to_insert = 12
-        while ws.cell(row=row_to_insert, column=9).value is not None:  # Vérifie si la cellule dans la colonne I est vide
+        while ws.cell(row=row_to_insert, column=9).value is not None:
             row_to_insert += 1
         
-        # Ajouter la semaine uniquement dans la feuille correspondant au mois
         week_cell = ws.cell(row=row_to_insert, column=9, value=f"Semaine: {semaine}")
-        
-        # Colorier la cellule de la semaine avec une couleur orange clair
-        orange_fill = PatternFill(start_color="FFCC99", end_color="FFCC99", fill_type="solid")
-        week_cell.fill = orange_fill
+        week_cell.fill = PatternFill(start_color="FFCC99", end_color="FFCC99", fill_type="solid")
         
         row_to_insert += 1
-        
-        # Variable pour calculer la somme des totaux pour la semaine et pour le mois
         total_depenses_semaine = 0
-        total_depenses_mois = 0  # Somme pour le mois
         
-        # Ajouter les classifications et leurs totaux dans les colonnes I et J
         for classification, total in data:
-            # Ajouter la classification avec aucun fond et police non-gras
-            classification_cell = ws.cell(row=row_to_insert, column=9, value=classification)  # Colonne I
-            classification_cell.fill = PatternFill(fill_type=None)  # Aucun fond
-            classification_cell.font = Font(bold=False)  # Police non grasse
-            
-            # Ajouter le total dans la colonne J avec aucun fond et police non-gras
-            total_cell = ws.cell(row=row_to_insert, column=10, value=total)  # Colonne J
-            total_cell.fill = PatternFill(fill_type=None)  # Aucun fond
-            total_cell.font = Font(bold=False)  # Police non grasse
-            
-            # Ajouter le total au calcul de la somme des dépenses de la semaine et du mois
+            ws.cell(row=row_to_insert, column=9, value=classification).font = Font(bold=False)
+            ws.cell(row=row_to_insert, column=10, value=total).font = Font(bold=False)
             total_depenses_semaine += total
-            total_depenses_mois += total
-            
             row_to_insert += 1
         
-        # Ajouter le total des dépenses pour la semaine en **gras**
-        total_label_cell = ws.cell(row=row_to_insert, column=9, value="TOTAL DEPENSES SEMAINE")
-        total_label_cell.font = Font(bold=True)  # Police en gras
-        
-        # Ajouter la somme des dépenses de la semaine en **gras**
-        total_value_cell = ws.cell(row=row_to_insert, column=10, value=total_depenses_semaine)
-        total_value_cell.font = Font(bold=True)  # Police en gras
-        
+        ws.cell(row=row_to_insert, column=9, value="TOTAL DEPENSES SEMAINE").font = Font(bold=True)
+        ws.cell(row=row_to_insert, column=10, value=total_depenses_semaine).font = Font(bold=True)
         row_to_insert += 1
         
-    # Ajouter le total des dépenses pour le mois à la fin de toutes les semaines du mois
-    total_label_cell_mois = ws.cell(row=row_to_insert, column=9, value="TOTAL DEPENSES MOIS")
-    total_label_cell_mois.font = Font(bold=False)  # Police non grasse
+        if mois_nom not in mois_totaux:
+            mois_totaux[mois_nom] = 0
+        mois_totaux[mois_nom] += total_depenses_semaine
     
-    # Ajouter la somme des dépenses du mois
-    total_value_cell_mois = ws.cell(row=row_to_insert, column=10, value=total_depenses_mois)
-    total_value_cell_mois.font = Font(bold=False)  # Police non grasse
+    for mois_nom, total_mois in mois_totaux.items():
+        ws = wb[mois_nom]
+        row_to_insert = 12
+        while ws.cell(row=row_to_insert, column=9).value is not None:
+            row_to_insert += 1
+        
+        ws.cell(row=row_to_insert, column=9, value="TOTAL DEPENSES MOIS").font = Font(bold=True)
+        ws.cell(row=row_to_insert, column=10, value=total_mois).font = Font(bold=True)
     
-    # Sauvegarder le fichier après avoir ajouté le total des dépenses du mois
     wb.save(file_path)
+
 
 
 def enregistrement(data_cp, path_data, budget_mensuel_categories, budget_mensuel_donnees, file_path):
