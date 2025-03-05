@@ -266,9 +266,9 @@ def calcul_et_tri(df):
     
     return df_somme
 
-
-
-
+from openpyxl import load_workbook
+from openpyxl.styles import PatternFill, Font, Border, Side
+import pandas as pd
 
 def envoie_donnees(df, file_path):
     nom_feuille = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
@@ -283,12 +283,40 @@ def envoie_donnees(df, file_path):
     except FileNotFoundError:
         raise FileNotFoundError(f"Le fichier {file_path} n'a pas été trouvé.")
     
+    # Définir les bordures
+    border_thick_left_right = Border(
+        left=Side(style="thick"),
+        right=Side(style="thick")
+    )
+    border_thick_all_sides = Border(
+        top=Side(style="thick"),
+        left=Side(style="thick"),
+        bottom=Side(style="thick"),
+        right=Side(style="thick")
+    )
+    
     for ws in wb.worksheets:
+        # Défusionner les cellules dans la zone spécifiée
         for row in range(12, ws.max_row + 1):
-            ws.cell(row=row, column=9).value = None  # Colonne I
-            ws.cell(row=row, column=10).value = None  # Colonne J
-            ws.cell(row=row, column=9).fill = PatternFill(fill_type=None)
-            ws.cell(row=row, column=10).fill = PatternFill(fill_type=None)
+            for col in [9, 10]:  # Colonnes I et J
+                cell = ws.cell(row=row, column=col)
+                
+                # Vérifier si la cellule fait partie d'une plage fusionnée
+                for merged_range in ws.merged_cells.ranges:
+                    if cell.coordinate in merged_range:
+                        # Défusionner la cellule
+                        ws.unmerge_cells(str(merged_range))
+                        break  # Une fois la cellule défusionnée, on peut sortir de la boucle
+                
+                # Maintenant, on peut modifier la valeur de la cellule
+                cell.value = None
+                cell.fill = PatternFill(fill_type=None)
+                
+                # Appliquer les bordures extérieures
+                if col == 9:  # Colonne I (Gauche)
+                    cell.border = border_thick_left_right
+                if col == 10:  # Colonne J (Droite)
+                    cell.border = border_thick_left_right
     
     semaine_data = {}
     
@@ -327,8 +355,9 @@ def envoie_donnees(df, file_path):
         while ws.cell(row=row_to_insert, column=9).value is not None:
             row_to_insert += 1
         
-        week_cell = ws.cell(row=row_to_insert, column=9, value=f"Semaine: {semaine}")
+        week_cell = ws.cell(row=row_to_insert, column=9, value=f"{semaine}")
         week_cell.fill = PatternFill(start_color="FFCC99", end_color="FFCC99", fill_type="solid")
+        week_cell.border = border_thick_left_right  # Bordure épaisse à gauche et droite pour la semaine
         
         row_to_insert += 1
         total_depenses_semaine = 0
@@ -336,11 +365,15 @@ def envoie_donnees(df, file_path):
         for classification, total in data:
             ws.cell(row=row_to_insert, column=9, value=classification).font = Font(bold=False)
             ws.cell(row=row_to_insert, column=10, value=total).font = Font(bold=False)
+            ws.cell(row=row_to_insert, column=9).border = border_thick_left_right  # Bordure épaisse à gauche pour la colonne I
+            ws.cell(row=row_to_insert, column=10).border = border_thick_left_right  # Bordure épaisse à droite pour la colonne J
             total_depenses_semaine += total
             row_to_insert += 1
         
         ws.cell(row=row_to_insert, column=9, value="TOTAL DEPENSES SEMAINE").font = Font(bold=True)
         ws.cell(row=row_to_insert, column=10, value=total_depenses_semaine).font = Font(bold=True)
+        ws.cell(row=row_to_insert, column=9).border = border_thick_left_right  # Bordure épaisse à gauche pour le total
+        ws.cell(row=row_to_insert, column=10).border = border_thick_left_right  # Bordure épaisse à droite pour le total
         row_to_insert += 1
         
         if mois_nom not in mois_totaux:
@@ -353,10 +386,26 @@ def envoie_donnees(df, file_path):
         while ws.cell(row=row_to_insert, column=9).value is not None:
             row_to_insert += 1
         
+        # Bordure épaisse à gauche et à droite pour "TOTAL DEPENSES MOIS"
         ws.cell(row=row_to_insert, column=9, value="TOTAL DEPENSES MOIS").font = Font(bold=True)
         ws.cell(row=row_to_insert, column=10, value=total_mois).font = Font(bold=True)
-    
+        ws.cell(row=row_to_insert, column=9).border = border_thick_left_right  # Bordure épaisse à gauche
+        ws.cell(row=row_to_insert, column=10).border = border_thick_left_right  # Bordure épaisse à droite
+        
+        # Bordure épaisse sur les 4 côtés pour "TOTAL DEPENSES MOIS"
+        ws.cell(row=row_to_insert, column=9).border = border_thick_all_sides
+        ws.cell(row=row_to_insert, column=10).border = border_thick_all_sides
+        
+        row_to_insert += 1  # Appliquer les bordures jusqu'à "TOTAL DEPENSES MOIS"
+        
+        # Supprimer les bordures après "TOTAL DEPENSES MOIS"
+        for row in range(row_to_insert, ws.max_row + 1):
+            for col in [9, 10]:  # Colonnes I et J
+                cell = ws.cell(row=row, column=col)
+                cell.border = Border()  # Supprimer la bordure en la réinitialisant
+                
     wb.save(file_path)
+
 
 
 
