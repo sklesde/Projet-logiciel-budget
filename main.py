@@ -300,7 +300,7 @@ def calcul_et_tri(df):
         "Revenu Exceptionnel"
     ]
     classifications_revenus_fixes = [
-        "Revenu Fixe", "Bourses Trade Républic (Livret Jeune)"
+        "Loyer", "Bourses Trade Républic (Livret Jeune)"
     ]
     
     # Créer les listes pour les autres DataFrames
@@ -330,8 +330,6 @@ def calcul_et_tri(df):
 
     # Retourner df_somme et les autres DataFrames
     return df_somme, data_charges_exceptionnelles, data_charges_fixes, data_revenus_exceptionnels, data_revenus_fixes
-
-
 
 
 
@@ -475,11 +473,12 @@ def envoie_donnees(df, file_path):
                 
     wb.save(file_path)
 
-from openpyxl import load_workbook
-from openpyxl.styles import Border, Side
 
-def envoie_donnees_revenus_exceptionnels(df, file_path):
+def envoi_donnees_revenus_exceptionnels(df, file_path):
     # Charger le fichier Excel
+    if df.empty:
+        return  # Arrêter immédiatement
+    
     wb = load_workbook(file_path)
     
     # Liste des noms des feuilles
@@ -537,6 +536,175 @@ def envoie_donnees_revenus_exceptionnels(df, file_path):
     
     # Sauvegarder le fichier modifié
     wb.save(file_path)
+
+
+def envoi_charges_exceptionnelles(df, file_path):
+    # Vérifier si la DataFrame est vide
+    if df.empty:
+        return  # Arrêt immédiat si df est vide
+
+    # Charger le fichier Excel
+    wb = load_workbook(file_path)
+    
+    # Liste des noms des feuilles
+    nom_feuille = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
+    
+    # Extraire les mois uniques présents dans la DataFrame
+    mois_a_ouvrir = df['Date operation'].apply(lambda x: x.month).unique()
+    
+    # Définir les bordures pour la colonne G
+    border_thick_left_right = Border(
+        left=Side(style="medium"),
+        right=Side(style="medium")
+    )
+    
+    # Traiter chaque mois concerné
+    for mois in mois_a_ouvrir:
+        feuille = nom_feuille[mois - 1]
+        ws = wb[feuille]
+
+        # Lire les valeurs actuelles des colonnes F et G pour les lignes 25 à 29
+        valeurs_existantes = {}
+        for row_num in range(24, 30):
+            libelle_f = ws.cell(row=row_num, column=6).value  # Colonne F (Libelle simplifie)
+            debit_g = ws.cell(row=row_num, column=7).value  # Colonne G (Débit)
+            if libelle_f:  # Ajouter uniquement si la cellule F contient quelque chose
+                valeurs_existantes[libelle_f] = debit_g
+
+        # Appliquer les bordures sur la colonne G pour les lignes 25-29
+        for row_num in range(24, 30):
+            cell = ws.cell(row=row_num, column=7)  # Colonne G
+            cell.border = border_thick_left_right  # Applique la bordure gauche/droite
+
+        # Appliquer les bordures supplémentaires sur la première et dernière ligne de la plage
+        ws.cell(row=24, column=7).border = Border(
+            top=Side(style="medium"),
+            left=Side(style="medium"),
+            right=Side(style="medium")
+        )
+        ws.cell(row=29, column=7).border = Border(
+            bottom=Side(style="medium"),
+            left=Side(style="medium"),
+            right=Side(style="medium")
+        )
+
+        # Traiter chaque ligne du DataFrame
+        for index, row in df.iterrows():
+            date_operation = row['Date operation']
+            libelle = row['Libelle simplifie']  # Utilisation de "Libelle simplifie" pour F
+            debit = row['Debit']  # ✅ Correction ici : utilisation de "Débit" au lieu de "Valeur"
+            
+            # Vérifier si le libellé existe déjà dans la colonne F
+            if libelle in valeurs_existantes:
+                if valeurs_existantes[libelle] != debit:
+                    # Si la valeur en G est différente, la mettre à jour
+                    for row_num in range(24, 30):
+                        if ws.cell(row=row_num, column=6).value == libelle:
+                            ws.cell(row=row_num, column=7).value = debit
+                            break  # Mise à jour effectuée, on sort
+            else:
+                # Chercher une ligne vide dans la plage 25-29 pour ajouter la nouvelle entrée
+                for row_num in range(24, 30):
+                    if ws.cell(row=row_num, column=6).value is None:
+                        ws.cell(row=row_num, column=6).value = libelle  # Ajouter en F
+                        ws.cell(row=row_num, column=7).value = debit  # Ajouter en G
+                        break  # Sortir après ajout
+
+    # Sauvegarder le fichier Excel
+    wb.save(file_path)
+
+
+
+def modif_charges_fixe(df, file_path):
+    # Vérifier si la DataFrame est vide
+    if df.empty:
+        return df  # Retourne le DataFrame inchangé
+    
+    # Dictionnaire de correspondance pour les modifications
+    corrections = {
+        "APPLE.COM/BILL": "Spotify & Apple Storage",
+        "TRADE REPUBLIC IBAN FRANCE": "Trade Republic",
+        "ENGIE": "Electricité & Gaz"
+        # Ajoute d'autres corrections ici si nécessaire
+    }
+
+    # Appliquer les modifications
+    df["Libelle simplifie"] = df["Libelle simplifie"].replace(corrections)
+    
+    # Gestion spéciale pour Spotify (analyse de la chaîne)
+    df["Libelle simplifie"] = df["Libelle simplifie"].apply(
+        lambda x: "Spotify & Apple Storage" if "Spotify" in x else x
+    )
+    return df  # Retourne le DataFrame modifié
+
+
+def envoi_charges_fixe(df, file_path):
+    # Vérifier si la DataFrame est vide
+    if df.empty:
+        return  # Arrêt immédiat si df est vide
+
+    # Charger le fichier Excel
+    wb = load_workbook(file_path)
+    
+    # Liste des noms des feuilles
+    nom_feuille = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
+    
+    # Extraire les mois uniques présents dans la DataFrame
+    mois_a_ouvrir = df['Date operation'].apply(lambda x: x.month).unique()
+    
+    # Définir les bordures pour la colonne G (Débit)
+    border_thick_left_right = Border(
+        left=Side(style="medium"),
+        right=Side(style="medium")
+    )
+    
+    # Traiter chaque mois concerné
+    for mois in mois_a_ouvrir:
+        feuille = nom_feuille[mois - 1]
+        ws = wb[feuille]
+
+        # Lire les valeurs actuelles des colonnes F et G pour les lignes 13 à 20
+        valeurs_existantes = {}
+        for row_num in range(13, 21):  # 21 exclu pour aller jusqu'à 20
+            libelle_f = ws.cell(row=row_num, column=6).value  # Colonne F (Libelle simplifie)
+            debit_g = ws.cell(row=row_num, column=7).value  # Colonne G (Débit)
+            if libelle_f and libelle_f != "Internet":  # Ignorer "Internet"
+                valeurs_existantes[libelle_f] = debit_g
+
+        # Appliquer les bordures sur la colonne G pour les lignes 13-20
+        for row_num in range(13, 21):
+            cell = ws.cell(row=row_num, column=7)  # Colonne G
+            cell.border = border_thick_left_right  # Applique la bordure gauche/droite
+
+        # Appliquer les bordures supplémentaires sur la première et dernière ligne de la plage
+        ws.cell(row=13, column=7).border = Border(
+            top=Side(style="medium"),
+            left=Side(style="medium"),
+            right=Side(style="medium")
+        )
+        ws.cell(row=20, column=7).border = Border(
+            bottom=Side(style="medium"),
+            left=Side(style="medium"),
+            right=Side(style="medium")
+        )
+
+        # Traiter chaque ligne du DataFrame
+        for index, row in df.iterrows():
+            date_operation = row['Date operation']
+            libelle = row['Libelle simplifie']  # Utilisation de "Libelle simplifie" pour F
+            debit = row['Debit']  # Utilisation de "Débit" pour G
+            
+            # Vérifier si le libellé existe déjà dans la colonne F et n'est pas "Internet"
+            if libelle in valeurs_existantes:
+                # Mettre à jour la valeur en G si elle est différente
+                for row_num in range(13, 21):
+                    if ws.cell(row=row_num, column=6).value == libelle:
+                        ws.cell(row=row_num, column=7).value = debit  # Met à jour la valeur en G
+                        break  # Une fois mis à jour, on sort de la boucle
+
+    # Sauvegarder le fichier Excel
+    wb.save(file_path)
+
 
 
 
@@ -597,7 +765,11 @@ data_somme_semaines, data_charges_exceptionnelles, data_charges_fixes, data_reve
 
 envoie_donnees(data_somme_semaines, file_path)
 
-envoie_donnees_revenus_exceptionnels(data_revenus_exceptionnels, file_path)
+envoi_donnees_revenus_exceptionnels(data_revenus_exceptionnels, file_path)
+envoi_charges_exceptionnelles(data_charges_exceptionnelles, file_path)
+
+data_charges_fixes = modif_charges_fixe(data_charges_fixes, file_path)
+envoi_charges_fixe(data_charges_fixes, file_path)
 
 enregistrement(data_cp, path_data, budget_mensuel_categories, budget_mensuel_donnees, file_path)
 
