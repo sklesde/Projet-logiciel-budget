@@ -475,54 +475,68 @@ def envoie_donnees(df, file_path):
                 
     wb.save(file_path)
 
-
+from openpyxl import load_workbook
+from openpyxl.styles import Border, Side
 
 def envoie_donnees_revenus_exceptionnels(df, file_path):
-    # Nom des feuilles représentant chaque mois
+    # Charger le fichier Excel
+    wb = load_workbook(file_path)
+    
+    # Liste des noms des feuilles
     nom_feuille = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
-
-    # Charger le classeur Excel
-    try:
-        wb = load_workbook(file_path)
-    except FileNotFoundError:
-        raise FileNotFoundError(f"Le fichier {file_path} n'a pas été trouvé.")
     
-    # Créer un dictionnaire des mois
-    mois_dict = {i+1: nom_feuille[i] for i in range(12)}
+    # Extraire les mois uniques à partir des dates présentes dans le DataFrame
+    mois_a_ouvrir = df['Date operation'].apply(lambda x: x.month).unique()
     
-    # Supprimer les anciennes valeurs des lignes 23 à 29 dans toutes les feuilles des mois
-    for mois_nom in nom_feuille:
-        if mois_nom in wb.sheetnames:
-            ws = wb[mois_nom]
-            for row in range(23, 30):  # Lignes 23 à 29
-                ws.cell(row=row, column=3, value=None)  # Effacer la valeur dans la colonne C
-                ws.cell(row=row, column=3).border = None  # Supprimer les anciennes bordures
+    # Définir les bordures
+    border_thick_left_right = Border(
+        left=Side(style="medium"),
+        right=Side(style="medium")
+    )
     
-    # Pour chaque ligne de la DataFrame
-    for _, row in df.iterrows():
+    # Supprimer les valeurs des cellules C25 à C29 pour les feuilles correspondant aux mois présents dans le DataFrame
+    for mois in mois_a_ouvrir:
+        feuille = nom_feuille[mois - 1]  # Convertir le mois en index de feuille
+        ws = wb[feuille]
+        for row_num in range(25, 30):  # Parcours des lignes 25 à 29
+            cell = ws.cell(row=row_num, column=3)  # Colonne C
+            cell.value = None  # Effacer la valeur de la cellule
+    
+    # Traitement des lignes du DataFrame
+    for index, row in df.iterrows():
         date_operation = row['Date operation']
-        total = row['Credit']
-        
-        # Déterminer le mois correspondant à la date
+        credit = row['Credit']
         mois = date_operation.month
-        mois_nom = mois_dict[mois]
+        feuille = nom_feuille[mois - 1]
+        ws = wb[feuille]
         
-        # Vérifier si la feuille du mois existe
-        if mois_nom not in wb.sheetnames:
-            raise ValueError(f"La feuille {mois_nom} n'existe pas dans le fichier.")
+        # Appliquer les bordures sur toutes les cellules de la plage C25-C29
+        for row_num in range(25, 30):
+            cell = ws.cell(row=row_num, column=3)
+            cell.border = border_thick_left_right  # Applique la bordure gauche/droite à chaque cellule
         
-        # Sélectionner la feuille du mois
-        ws = wb[mois_nom]
+        # Appliquer les bordures supplémentaires sur la première et dernière ligne de la plage
+        ws.cell(row=25, column=3).border = Border(
+            top=Side(style="medium"),
+            left=Side(style="medium"),
+            right=Side(style="medium")
+        )
         
-        # Déterminer la première ligne vide entre 23 et 29 dans la colonne C
-        for row_to_insert in range(23, 30):  # De la ligne 23 à 29
-            if ws.cell(row=row_to_insert, column=3).value is None:
-                # Écrire les données dans la cellule appropriée (colonne C)
-                ws.cell(row=row_to_insert, column=3, value=total)
-                break
+        ws.cell(row=29, column=3).border = Border(
+            bottom=Side(style="medium"),
+            left=Side(style="medium"),
+            right=Side(style="medium")
+        )
+        
+        # Remplir la première cellule vide avec le crédit
+        for row_num in range(25, 30):
+            cell = ws.cell(row=row_num, column=3)
+            if cell.value is None:  # Dès qu'une cellule vide est trouvée
+                cell.value = credit  # Ajouter le crédit
+                break  # Arrêter après avoir ajouté la première valeur
     
-    # Sauvegarder le fichier Excel
-    wb.save
+    # Sauvegarder le fichier modifié
+    wb.save(file_path)
 
 
 
