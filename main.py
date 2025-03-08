@@ -807,6 +807,42 @@ def ajouter_liste_deroulante_categories(file_path):
 
 
 
+import openpyxl
+
+def reglage_affichage(file_path):
+    # Charger le fichier Excel
+    wb = openpyxl.load_workbook(file_path)
+    
+    # Vérifier si la feuille 'Categories' existe
+    if 'Categories' not in wb.sheetnames:
+        print("La feuille 'Categories' n'existe pas dans le fichier.")
+        return
+    
+    ws = wb['Categories']
+    
+    # Définir la largeur des colonnes spécifiques
+    column_widths = {
+        'ID':20,
+        'Classification': 20,
+        'Date operation': 18,
+        'Sous categorie': 24,
+        'Libelle simplifie': 65
+
+    }
+    
+    # Trouver les indices des colonnes
+    header_row = ws[1]
+    col_indices = {cell.value: cell.column_letter for cell in header_row if cell.value in column_widths}
+    
+    # Appliquer les largeurs définies
+    for col_name, width in column_widths.items():
+        if col_name in col_indices:
+            ws.column_dimensions[col_indices[col_name]].width = width
+    
+    
+    # Sauvegarder les modifications
+    wb.save(file_path)
+    print("Ajustement des colonnes terminé.")
 
 
 
@@ -887,6 +923,7 @@ envoi_revenus_fixes(data_revenus_fixes, file_path)
 
 enregistrement(data_cp, path_data, budget_mensuel_categories, budget_mensuel_donnees, file_path)
 ajouter_liste_deroulante_categories(file_path)
+reglage_affichage(file_path)
 print("Excel mis a jour.")  
 print("Appuyez sur une touche pour fermer...")
 
