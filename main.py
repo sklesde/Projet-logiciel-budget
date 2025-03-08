@@ -5,6 +5,14 @@ from datetime import date
 import shutil
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Font, Border, Side, Alignment
+from spire.xls import Workbook
+
+import shutil
+import time
+import os
+from spire.xls import Workbook
+from openpyxl import load_workbook
+
 
 #%%
    
@@ -294,13 +302,13 @@ def calcul_et_tri(df):
         "Charges exceptionnelles"
     ]
     classifications_charges_fixes = [
-        "Investissement Trade", "Electricité & Gaz", "Spotify", "Internet et Engie Home Service"
+        "Trade Républic", "Electricité & Gaz", "Spotify & Apple Storage",
     ]
     classifications_revenus_exceptionnels = [
         "Revenu Exceptionnel"
     ]
     classifications_revenus_fixes = [
-        "Loyer", "Bourses Trade Républic (Livret Jeune)"
+        "Bourses"
     ]
     
     # Créer les listes pour les autres DataFrames
@@ -623,7 +631,7 @@ def modif_charges_fixe(df, file_path):
     # Dictionnaire de correspondance pour les modifications
     corrections = {
         "APPLE.COM/BILL": "Spotify & Apple Storage",
-        "TRADE REPUBLIC IBAN FRANCE": "Trade Republic",
+        "TRADE REPUBLIC IBAN FRANCE": "Trade Républic",
         "ENGIE": "Electricité & Gaz"
         # Ajoute d'autres corrections ici si nécessaire
     }
@@ -707,19 +715,124 @@ def envoi_charges_fixe(df, file_path):
 
 
 
+def envoi_revenus_fixes(df, file_path):
+    # Vérifier si le DataFrame est vide
+    if df.empty:
+        return  # Arrêt immédiat si df est vide
+    
+    # Charger le fichier Excel
+    wb = load_workbook(file_path)
+    
+    # Liste des noms des feuilles (mois)
+    nom_feuille = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", 
+                   "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
+
+    
+    # Définir les bordures pour la colonne C
+    border_thick_left_right = Border(
+        left=Side(style="medium"),
+        right=Side(style="medium")
+    )
+    
+    # Lire les revenus fixes à partir de la feuille Excel
+    for index, row in df.iterrows():
+        # Extraire le mois à partir de 'Date operation'
+        mois = row['Date operation'].month
+        feuille = nom_feuille[mois - 1]  # Sélectionner la feuille correspondante
+        
+        # Vérifier si la feuille existe dans le fichier Excel
+        if feuille in wb.sheetnames:
+            ws = wb[feuille]
+            
+            # Vérifier la classification et inscrire la valeur dans la cellule appropriée
+            if row['Classification'] == "Loyer":
+                # Inscrire la valeur dans C15
+                ws["C15"].value = row['Credit']
+                # Appliquer une bordure à la cellule C15
+                ws["C15"].border = border_thick_left_right
+            elif row['Classification'] == "Trade Républic":
+                # Inscrire la valeur dans C16
+                ws["C16"].value = row['Credit']
+                # Appliquer une bordure à la cellule C16
+                ws["C16"].border = border_thick_left_right
+            # Si vous avez d'autres classifications à gérer, vous pouvez les ajouter ici
+            # elif row['Classification'] == "Bourses":
+            #     ws["C17"].value = row['Credit']
+            #     ws["C17"].border = border_thick_left_right
+    
+    # Sauvegarder les modifications dans le fichier Excel
+    wb.save(file_path)
+
+
+from openpyxl import Workbook, load_workbook
+from openpyxl.worksheet.datavalidation import DataValidation
+
+
+def ajouter_liste_deroulante_categories(file_path):
+    # Load the workbook and select the 'Categories' worksheet
+    wb = load_workbook(file_path)
+    if 'Categories' not in wb.sheetnames:
+        print("La feuille 'Categories' n'existe pas dans le fichier.")
+        return
+    ws = wb['Categories']
+    
+    # Définir 'Categories' comme la feuille active
+    wb.active = wb.index(ws)
+    
+    # Determine the last row with data in column I
+    last_row = ws.max_row
+    
+    # Create a data-validation object with list validation
+    dv = DataValidation(type="list", formula1='"Courses,Snacks,Restaurants,Sport,Vêtements/Coiffure,Loisirs,Divers,Commande Internet,Transports,Autre 1,Autre 2,Bourses,Investissement Trade,Spotify & Apple Storage,Electricité & Gaz,Revenu Exceptionnel,Charges exceptionnelles"', allow_blank=True)
+    
+    # Set custom error and prompt messages
+    dv.error = 'Your entry is not in the list'
+    dv.errorTitle = 'Invalid Entry'
+    dv.prompt = 'Please select from the list'
+    dv.promptTitle = 'List Selection'
+    
+    # Add the data-validation object to the worksheet (Column I)
+    ws.add_data_validation(dv)
+    
+    # Apply the validation to a range of cells in column I up to the last row
+    dv.add(f'I2:I{last_row}')
+    
+    # Enable input and error messages
+    dv.showInputMessage = True
+    dv.showErrorMessage = True
+    
+    # Save the workbook
+    wb.save(file_path)
+    print(f"Modifications enregistrées dans {file_path}")
+
+
+
+
+
 
 def enregistrement(data_cp, path_data, budget_mensuel_categories, budget_mensuel_donnees, file_path):
     # Vérifier si 'data_cp' est un entier
     if not isinstance(data_cp, int):
+        remove(f".\\{path_data}")
+    
+    try:
+        # Utiliser ExcelWriter pour la feuille 'Categories'
+        with pd.ExcelWriter(file_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+            # Réécrire uniquement la feuille 'Categories' modifiée
+            budget_mensuel_categories.to_excel(writer, sheet_name='Categories', index=False)
 
-        remove(f".\{path_data}")
-        
-    with ExcelWriter(file_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
-        # Réécrire uniquement la feuille 'Categories' modifiée
-        budget_mensuel_categories.to_excel(writer, sheet_name='Categories', index=False)
-    with ExcelWriter(file_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
-        # Réécrire uniquement la feuille 'Donnees' modifiée
-        budget_mensuel_donnees.to_excel(writer, sheet_name='Donnees', index=False)   
+        # Attendre un petit moment pour éviter un conflit potentiel
+        time.sleep(1)
+
+        # Utiliser ExcelWriter pour la feuille 'Donnees'
+        with pd.ExcelWriter(file_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+            # Réécrire uniquement la feuille 'Donnees' modifiée
+            budget_mensuel_donnees.to_excel(writer, sheet_name='Donnees', index=False)
+
+        print("✅ Enregistrement terminé avec succès.")
+    
+    except Exception as e:
+        print(f"❌ Erreur lors de l'enregistrement des données : {e}")
 
 #%%
 #On récupère la date du jour
@@ -770,9 +883,10 @@ envoi_charges_exceptionnelles(data_charges_exceptionnelles, file_path)
 
 data_charges_fixes = modif_charges_fixe(data_charges_fixes, file_path)
 envoi_charges_fixe(data_charges_fixes, file_path)
+envoi_revenus_fixes(data_revenus_fixes, file_path)
 
 enregistrement(data_cp, path_data, budget_mensuel_categories, budget_mensuel_donnees, file_path)
-
+ajouter_liste_deroulante_categories(file_path)
 print("Excel mis a jour.")  
 print("Appuyez sur une touche pour fermer...")
 
