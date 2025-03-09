@@ -6,7 +6,8 @@ import shutil
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Font, Border, Side, Alignment
 from spire.xls import Workbook
-
+from openpyxl import Workbook, load_workbook
+from openpyxl.worksheet.datavalidation import DataValidation
 import shutil
 import time
 import os
@@ -296,7 +297,8 @@ def calcul_et_tri(df):
     data_charges_fixes = []
     data_revenus_exceptionnels = []
     data_revenus_fixes = []
-
+    data_virement_interne = []
+    
     # Ajouter les nouvelles classifications aux listes correspondantes
     classifications_charges_exceptionnelles = [
         "Charges exceptionnelles"
@@ -310,6 +312,7 @@ def calcul_et_tri(df):
     classifications_revenus_fixes = [
         "Bourses"
     ]
+    classifications_virement_interne = ['Virement interne' ]
     
     # Créer les listes pour les autres DataFrames
     for _, row in df.iterrows():
@@ -323,21 +326,23 @@ def calcul_et_tri(df):
             data_revenus_exceptionnels.append(row)
         elif classification in classifications_revenus_fixes:
             data_revenus_fixes.append(row)
-    
+        elif classification in classifications_virement_interne:
+            data_virement_interne.append(row)
     # Convertir les listes en DataFrames
     data_charges_exceptionnelles = pd.DataFrame(data_charges_exceptionnelles)
     data_charges_fixes = pd.DataFrame(data_charges_fixes)
     data_revenus_exceptionnels = pd.DataFrame(data_revenus_exceptionnels)
     data_revenus_fixes = pd.DataFrame(data_revenus_fixes)
+    data_virement_interne= pd.DataFrame(data_virement_interne)
     
     # Supprimer les 3 dernières colonnes de chaque DataFrame
     data_charges_exceptionnelles = data_charges_exceptionnelles.iloc[:, :-3]
     data_charges_fixes = data_charges_fixes.iloc[:, :-3]
     data_revenus_exceptionnels = data_revenus_exceptionnels.iloc[:, :-3]
     data_revenus_fixes = data_revenus_fixes.iloc[:, :-3]
-
+    data_virement_interne = data_virement_interne.iloc[:, :-3]
     # Retourner df_somme et les autres DataFrames
-    return df_somme, data_charges_exceptionnelles, data_charges_fixes, data_revenus_exceptionnels, data_revenus_fixes
+    return df_somme, data_charges_exceptionnelles, data_charges_fixes, data_revenus_exceptionnels, data_revenus_fixes, data_virement_interne
 
 
 
@@ -696,18 +701,23 @@ def envoi_charges_fixe(df, file_path):
             right=Side(style="medium")
         )
 
+        # Calculer la somme Debit + Credit par Classification
+        somme_par_classification = df.groupby("Classification")[["Debit", "Credit"]].sum().sum(axis=1)
+        
         # Traiter chaque ligne du DataFrame
         for index, row in df.iterrows():
             date_operation = row['Date operation']
             libelle = row['Libelle simplifie']  # Utilisation de "Libelle simplifie" pour F
-            debit = row['Debit']  # Utilisation de "Débit" pour G
             
+            # Remplacement de row['Debit'] par la somme Debit + Credit de sa Classification
+            valeur_a_inscrire = somme_par_classification[row["Classification"]]
+        
             # Vérifier si le libellé existe déjà dans la colonne F et n'est pas "Internet"
             if libelle in valeurs_existantes:
                 # Mettre à jour la valeur en G si elle est différente
                 for row_num in range(13, 21):
                     if ws.cell(row=row_num, column=6).value == libelle:
-                        ws.cell(row=row_num, column=7).value = debit  # Met à jour la valeur en G
+                        ws.cell(row=row_num, column=7).value = valeur_a_inscrire  # Met à jour la valeur en G
                         break  # Une fois mis à jour, on sort de la boucle
 
     # Sauvegarder le fichier Excel
@@ -715,7 +725,55 @@ def envoi_charges_fixe(df, file_path):
 
 
 
+
 def envoi_revenus_fixes(df, file_path):
+    # Vérifier si le DataFrame est vide
+    if df.empty:
+        return  # Arrêt immédiat si df est vide
+    
+    # Charger le fichier Excel
+    wb = load_workbook(file_path)
+    
+    # Liste des noms des feuilles (mois)
+    nom_feuille = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", 
+                   "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
+
+    # Définir les bordures pour la colonne C
+    border_thick_left_right = Border(
+        left=Side(style="medium"),
+        right=Side(style="medium")
+    )
+
+    # 🔹 **Parcourir les mois présents dans df**
+    mois_a_ouvrir = df['Date operation'].dt.month.unique()
+
+    for mois in mois_a_ouvrir:
+        feuille = nom_feuille[mois - 1]  # Sélectionner la feuille correspondante
+        
+        # Vérifier si la feuille existe dans le fichier Excel
+        if feuille in wb.sheetnames:
+            ws = wb[feuille]
+
+            # **🔸 Étape 1 : Effacer les anciennes valeurs entre 13 et 20**
+            for row_num in range(13, 21):
+                ws[f"C{row_num}"].value = None  # Efface la valeur existante
+                ws[f"C{row_num}"].border = None  # Supprime la bordure existante
+
+            # **🔸 Étape 2 : Insérer les nouvelles valeurs de "Bourses"**
+            for index, row in df[df['Classification'] == "Bourses"].iterrows():
+                # Trouver la première ligne vide entre 13 et 20
+                for row_num in range(13, 21):
+                    if ws[f"C{row_num}"].value is None:  # Vérifie si la cellule est vide
+                        ws[f"C{row_num}"].value = row['Credit']  # Insère la valeur
+                        ws[f"C{row_num}"].border = border_thick_left_right  # Applique la bordure
+                        break  # Sort de la boucle après l'insertion
+
+    # Sauvegarder les modifications dans le fichier Excel
+    wb.save(file_path)
+
+
+
+def envoi_virement_interne(df, file_path):
     # Vérifier si le DataFrame est vide
     if df.empty:
         return  # Arrêt immédiat si df est vide
@@ -745,16 +803,16 @@ def envoi_revenus_fixes(df, file_path):
             ws = wb[feuille]
             
             # Vérifier la classification et inscrire la valeur dans la cellule appropriée
-            if row['Classification'] == "Loyer":
+            if row['Classification'] == "Vire":
                 # Inscrire la valeur dans C15
                 ws["C15"].value = row['Credit']
                 # Appliquer une bordure à la cellule C15
                 ws["C15"].border = border_thick_left_right
-            elif row['Classification'] == "Trade Républic":
-                # Inscrire la valeur dans C16
-                ws["C16"].value = row['Credit']
-                # Appliquer une bordure à la cellule C16
-                ws["C16"].border = border_thick_left_right
+            if row['Classification'] == "Bourses":
+                # Inscrire la valeur dans C15
+                ws["C13"].value = row['Credit']
+                # Appliquer une bordure à la cellule C15
+                ws["C13"].border = border_thick_left_right
             # Si vous avez d'autres classifications à gérer, vous pouvez les ajouter ici
             # elif row['Classification'] == "Bourses":
             #     ws["C17"].value = row['Credit']
@@ -764,49 +822,140 @@ def envoi_revenus_fixes(df, file_path):
     wb.save(file_path)
 
 
-from openpyxl import Workbook, load_workbook
+from openpyxl import load_workbook
 from openpyxl.worksheet.datavalidation import DataValidation
 
-
 def ajouter_liste_deroulante_categories(file_path):
-    # Load the workbook and select the 'Categories' worksheet
+    # Charger le fichier et sélectionner la feuille 'Categories'
     wb = load_workbook(file_path)
-    if 'Categories' not in wb.sheetnames:
-        print("La feuille 'Categories' n'existe pas dans le fichier.")
-        return
-    ws = wb['Categories']
     
+    if 'Categories' not in wb.sheetnames:
+        print("❌ La feuille 'Categories' n'existe pas dans le fichier.")
+        return
+    
+    ws = wb['Categories']
+
+    # Vérifier s'il y a au moins une ligne de données (au-delà de l'en-tête)
+    if ws.max_row <= 1:
+        print("⚠️ Aucun contenu trouvé (seulement la ligne 1). Aucune modification effectuée.")
+        return  # Arrêter la fonction immédiatement
+
     # Définir 'Categories' comme la feuille active
     wb.active = wb.index(ws)
-    
-    # Determine the last row with data in column I
+
+    # Déterminer la dernière ligne remplie dans la colonne I
     last_row = ws.max_row
-    
-    # Create a data-validation object with list validation
-    dv = DataValidation(type="list", formula1='"Courses,Snacks,Restaurants,Sport,Vêtements/Coiffure,Loisirs,Divers,Commande Internet,Transports,Autre 1,Autre 2,Bourses,Investissement Trade,Spotify & Apple Storage,Electricité & Gaz,Revenu Exceptionnel,Charges exceptionnelles"', allow_blank=True)
-    
-    # Set custom error and prompt messages
-    dv.error = 'Your entry is not in the list'
-    dv.errorTitle = 'Invalid Entry'
-    dv.prompt = 'Please select from the list'
-    dv.promptTitle = 'List Selection'
-    
-    # Add the data-validation object to the worksheet (Column I)
+
+    # Définir les catégories avec des séparateurs
+    categories = '"Courses,Snacks,Restaurants,Sport,Vêtements/Coiffure,Loisirs,Divers,Commande Internet,Transports,Autre 1,Autre 2,-----,Bourses,Trade Républic,Spotify & Apple Storage,Electricité & Gaz,Virement interne,Crédit,Revenu Exceptionnel,Charges exceptionnelles"'
+
+    # Créer l'objet de validation de données
+    dv = DataValidation(type="list", formula1=categories, allow_blank=True)
+
+    # Configurer les messages d'erreur et d'information
+    dv.error = 'Votre sélection doit être dans la liste'
+    dv.errorTitle = 'Entrée invalide'
+    dv.prompt = 'Veuillez choisir une catégorie dans la liste'
+    dv.promptTitle = 'Sélection de liste'
+
+    # Appliquer la validation aux cellules de la colonne I jusqu'à la dernière ligne
     ws.add_data_validation(dv)
-    
-    # Apply the validation to a range of cells in column I up to the last row
     dv.add(f'I2:I{last_row}')
-    
-    # Enable input and error messages
-    dv.showInputMessage = True
-    dv.showErrorMessage = True
-    
-    # Save the workbook
+
+    # Enregistrer le fichier
     wb.save(file_path)
-    print(f"Modifications enregistrées dans {file_path}")
+    print(f"✅ Modifications enregistrées dans {file_path}")
 
 
 
+
+def envoi_virement_interne(df, file_path):
+    # Vérifier si le DataFrame est vide
+    if df.empty:
+        return  # Arrêt immédiat si df est vide
+    
+    # Charger le fichier Excel
+    wb = load_workbook(file_path)
+    
+    # Liste des noms des feuilles (mois)
+    nom_feuille = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", 
+                   "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
+
+    # Définir les styles de bordures
+    border_none = Border()  # Supprimer toutes les bordures
+    border_thick_sides = Border(left=Side(style="medium"), right=Side(style="medium"))
+    border_thick_all = Border(left=Side(style="medium"), right=Side(style="medium"), bottom=Side(style="medium"), top=Side(style="medium"))
+
+    # Trouver les mois présents dans df
+    mois_a_ouvrir = df['Date operation'].dt.month.unique()
+
+    # 🔹 **ÉTAPE 1 : Suppression des anciennes valeurs et bordures après la ligne 35**
+    for mois in mois_a_ouvrir:
+        feuille = nom_feuille[mois - 1]  # Convertir le mois en index de feuille
+        if feuille in wb.sheetnames:
+            ws = wb[feuille]
+
+            # Suppression des anciennes valeurs après la ligne 35
+            for row in range(36, ws.max_row + 1):  # On supprime depuis 36 jusqu'à la fin
+                ws[f"B{row}"].value = None
+                ws[f"C{row}"].value = None
+                ws[f"B{row}"].border = border_none
+                ws[f"C{row}"].border = border_none
+                ws[f"B{row}"].font = Font(bold=False)
+                ws[f"C{row}"].font = Font(bold=False)
+
+    # 🔹 **ÉTAPE 2 : Ajout des nouveaux virements internes après la ligne 35**
+    for index, row in df.iterrows():
+        mois = row['Date operation'].month
+        feuille = nom_feuille[mois - 1]
+        
+        if feuille in wb.sheetnames:
+            ws = wb[feuille]
+            
+            # Trouver la première ligne vide à partir de la ligne 36
+            ligne = 36
+            while ws[f"B{ligne}"].value is not None:
+                ligne += 1
+            
+            # Insérer les données en colonne B et C
+            ws[f"B{ligne}"] = row["Libelle simplifie"]
+            ws[f"C{ligne}"] = row["Credit"]
+            
+            # Appliquer les bordures sur B et C
+            ws[f"B{ligne}"].border = border_thick_sides
+            ws[f"C{ligne}"].border = border_thick_sides
+
+    # 🔹 **ÉTAPE 3 : Ajout de la ligne TOTAL VIREMENT INTERNE après les nouvelles données**
+    if not df.empty:
+        derniere_ligne = ligne
+        
+        # Ajouter une ligne vide avec bordures après les données ajoutées
+        derniere_ligne += 1
+        ws[f"B{derniere_ligne}"].border = border_thick_sides
+        ws[f"C{derniere_ligne}"].border = border_thick_sides
+
+        # Ligne TOTAL VIREMENT INTERNE
+        derniere_ligne += 1
+        ws[f"B{derniere_ligne}"] = "TOTAL VIREMENT INTERNE"
+        ws[f"B{derniere_ligne}"].font = Font(bold=True)
+        ws[f"B{derniere_ligne}"].border = border_thick_all
+
+        # Recalculer le total uniquement pour les lignes après 35
+        total_virement = sum(
+            ws[f"C{row}"].value for row in range(36, derniere_ligne) if isinstance(ws[f"C{row}"].value, (int, float))
+        )
+
+        ws[f"C{derniere_ligne}"] = total_virement
+        ws[f"C{derniere_ligne}"].font = Font(bold=True)
+        ws[f"C{derniere_ligne}"].border = border_thick_all
+    
+    # Sauvegarder les modifications
+    wb.save(file_path)
+
+
+
+
+import openpyxl
 import openpyxl
 
 def reglage_affichage(file_path):
@@ -815,19 +964,23 @@ def reglage_affichage(file_path):
     
     # Vérifier si la feuille 'Categories' existe
     if 'Categories' not in wb.sheetnames:
-        print("La feuille 'Categories' n'existe pas dans le fichier.")
+        print("❌ La feuille 'Categories' n'existe pas dans le fichier.")
         return
     
     ws = wb['Categories']
     
+    # Vérifier s'il y a au moins une ligne de données (au-delà de l'en-tête)
+    if ws.max_row <= 1:
+        print("⚠️ Aucun contenu trouvé (seulement la ligne 1). Aucune modification effectuée.")
+        return  # Arrêter la fonction immédiatement
+    
     # Définir la largeur des colonnes spécifiques
     column_widths = {
-        'ID':20,
+        'ID': 20,
         'Classification': 20,
         'Date operation': 18,
         'Sous categorie': 24,
         'Libelle simplifie': 65
-
     }
     
     # Trouver les indices des colonnes
@@ -839,10 +992,11 @@ def reglage_affichage(file_path):
         if col_name in col_indices:
             ws.column_dimensions[col_indices[col_name]].width = width
     
-    
     # Sauvegarder les modifications
     wb.save(file_path)
-    print("Ajustement des colonnes terminé.")
+    print("✅ Ajustement des colonnes terminé.")
+
+
 
 
 
@@ -910,7 +1064,7 @@ data_calcul = budget_mensuel_donnees.loc[budget_mensuel_donnees['Classification'
 
 data_calcul = tri_par_semaine(data_calcul)
 
-data_somme_semaines, data_charges_exceptionnelles, data_charges_fixes, data_revenus_exceptionnels, data_revenus_fixes = calcul_et_tri(data_calcul)
+data_somme_semaines, data_charges_exceptionnelles, data_charges_fixes, data_revenus_exceptionnels, data_revenus_fixes, data_virement_interne = calcul_et_tri(data_calcul)
 
 envoie_donnees(data_somme_semaines, file_path)
 
@@ -920,6 +1074,7 @@ envoi_charges_exceptionnelles(data_charges_exceptionnelles, file_path)
 data_charges_fixes = modif_charges_fixe(data_charges_fixes, file_path)
 envoi_charges_fixe(data_charges_fixes, file_path)
 envoi_revenus_fixes(data_revenus_fixes, file_path)
+envoi_virement_interne(data_virement_interne, file_path)
 
 enregistrement(data_cp, path_data, budget_mensuel_categories, budget_mensuel_donnees, file_path)
 ajouter_liste_deroulante_categories(file_path)
