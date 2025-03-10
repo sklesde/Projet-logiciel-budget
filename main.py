@@ -651,45 +651,57 @@ def modif_charges_fixe(df, file_path):
     return df  # Retourne le DataFrame modifié
 
 
+
 def envoi_charges_fixe(df, file_path):
-    # Vérifier si la DataFrame est vide
     if df.empty:
         return  # Arrêt immédiat si df est vide
 
-    # Charger le fichier Excel
     wb = load_workbook(file_path)
-    
-    # Liste des noms des feuilles
     nom_feuille = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
-    
-    # Extraire les mois uniques présents dans la DataFrame
     mois_a_ouvrir = df['Date operation'].apply(lambda x: x.month).unique()
-    
-    # Définir les bordures pour la colonne G (Débit)
+
     border_thick_left_right = Border(
         left=Side(style="medium"),
         right=Side(style="medium")
     )
-    
-    # Traiter chaque mois concerné
+    border_none = Border()  # Bordure vide pour suppression
+
     for mois in mois_a_ouvrir:
         feuille = nom_feuille[mois - 1]
         ws = wb[feuille]
+        
+        df_mois = df[df['Date operation'].apply(lambda x: x.month) == mois]  # Filtrer le DataFrame pour le mois en cours
 
-        # Lire les valeurs actuelles des colonnes F et G pour les lignes 13 à 20
+        # 🔹 **ÉTAPE 1 : Suppression des anciennes valeurs et bordures dans la colonne G après la ligne 35**
+        for row in range(13, 21):  # On supprime depuis 36 jusqu'à la fin
+            ws[f"G{row}"].value = None
+            ws[f"G{row}"].border = border_none
+            ws[f"G{row}"].font = Font(bold=False)
+
+        # Lire les valeurs existantes de la colonne F (Libelle simplifie) et G (Débit)
         valeurs_existantes = {}
-        for row_num in range(13, 21):  # 21 exclu pour aller jusqu'à 20
-            libelle_f = ws.cell(row=row_num, column=6).value  # Colonne F (Libelle simplifie)
-            debit_g = ws.cell(row=row_num, column=7).value  # Colonne G (Débit)
+        for row_num in range(13, 21):
+            libelle_f = ws.cell(row=row_num, column=6).value  # Colonne F
+            debit_g = ws.cell(row=row_num, column=7).value or 0  # Colonne G, valeur par défaut 0
             if libelle_f and libelle_f != "Internet":  # Ignorer "Internet"
                 valeurs_existantes[libelle_f] = debit_g
 
-        # Appliquer les bordures sur la colonne G pour les lignes 13-20
+        # Calculer la somme totale Debit + Credit par classification uniquement pour le mois concerné
+        somme_par_classification = df_mois.groupby("Classification")[["Debit", "Credit"]].sum().sum(axis=1)
+        
+        # Insérer les valeurs dans le fichier Excel
+        for classification, valeur_totale in somme_par_classification.items():
+            if classification in valeurs_existantes:
+                for row_num in range(13, 21):
+                    if ws.cell(row=row_num, column=6).value == classification:
+                        ws.cell(row=row_num, column=7).value = valeur_totale  # Mise à jour valeur
+                        break
+            
+        # Appliquer les bordures sur la colonne G (Débit)
         for row_num in range(13, 21):
-            cell = ws.cell(row=row_num, column=7)  # Colonne G
-            cell.border = border_thick_left_right  # Applique la bordure gauche/droite
+            cell = ws.cell(row=row_num, column=7)
+            cell.border = border_thick_left_right
 
-        # Appliquer les bordures supplémentaires sur la première et dernière ligne de la plage
         ws.cell(row=13, column=7).border = Border(
             top=Side(style="medium"),
             left=Side(style="medium"),
@@ -700,75 +712,65 @@ def envoi_charges_fixe(df, file_path):
             left=Side(style="medium"),
             right=Side(style="medium")
         )
-
-        # Calculer la somme Debit + Credit par Classification
-        somme_par_classification = df.groupby("Classification")[["Debit", "Credit"]].sum().sum(axis=1)
-        
-        # Traiter chaque ligne du DataFrame
-        for index, row in df.iterrows():
-            date_operation = row['Date operation']
-            libelle = row['Libelle simplifie']  # Utilisation de "Libelle simplifie" pour F
-            
-            # Remplacement de row['Debit'] par la somme Debit + Credit de sa Classification
-            valeur_a_inscrire = somme_par_classification[row["Classification"]]
-        
-            # Vérifier si le libellé existe déjà dans la colonne F et n'est pas "Internet"
-            if libelle in valeurs_existantes:
-                # Mettre à jour la valeur en G si elle est différente
-                for row_num in range(13, 21):
-                    if ws.cell(row=row_num, column=6).value == libelle:
-                        ws.cell(row=row_num, column=7).value = valeur_a_inscrire  # Met à jour la valeur en G
-                        break  # Une fois mis à jour, on sort de la boucle
-
-    # Sauvegarder le fichier Excel
+    
     wb.save(file_path)
 
 
-
+from openpyxl import load_workbook
+from openpyxl.styles import Border, Side
+import pandas as pd
+from datetime import datetime, timedelta
 
 def envoi_revenus_fixes(df, file_path):
     # Vérifier si le DataFrame est vide
     if df.empty:
-        return  # Arrêt immédiat si df est vide
-    
+        return  
+
     # Charger le fichier Excel
     wb = load_workbook(file_path)
-    
-    # Liste des noms des feuilles (mois)
+
+    # Liste des mois
     nom_feuille = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", 
                    "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
 
-    # Définir les bordures pour la colonne C
-    border_thick_left_right = Border(
-        left=Side(style="medium"),
-        right=Side(style="medium")
+    # Définir les bordures
+    border_thick_left_right = Border(left=Side(style="medium"), right=Side(style="medium"))
+
+    # **Adapter les mois selon la règle des dates**
+    df['Mois Comptabilisé'] = df['Date operation'].apply(lambda date: (
+        date.month + 1 if date.day >= 20 else date.month
+    ))
+    
+    # Gérer le passage à l'année suivante (ex: décembre → janvier)
+    df['Mois Comptabilisé'] = df.apply(
+        lambda row: 1 if row['Mois Comptabilisé'] == 13 else row['Mois Comptabilisé'], axis=1
     )
 
-    # 🔹 **Parcourir les mois présents dans df**
-    mois_a_ouvrir = df['Date operation'].dt.month.unique()
+    # Parcourir les mois ajustés
+    mois_a_ouvrir = df['Mois Comptabilisé'].unique()
 
     for mois in mois_a_ouvrir:
-        feuille = nom_feuille[mois - 1]  # Sélectionner la feuille correspondante
-        
-        # Vérifier si la feuille existe dans le fichier Excel
+        feuille = nom_feuille[mois - 1]  
+
+        # Vérifier si la feuille existe
         if feuille in wb.sheetnames:
             ws = wb[feuille]
 
-            # **🔸 Étape 1 : Effacer les anciennes valeurs entre 13 et 20**
-            for row_num in range(13, 21):
-                ws[f"C{row_num}"].value = None  # Efface la valeur existante
-                ws[f"C{row_num}"].border = None  # Supprime la bordure existante
+            # 🔹 **Récupérer les valeurs déjà existantes dans C13:C20**
+            valeurs_existantes = [ws[f"C{row_num}"].value for row_num in range(13, 21) if ws[f"C{row_num}"].value is not None]
 
-            # **🔸 Étape 2 : Insérer les nouvelles valeurs de "Bourses"**
-            for index, row in df[df['Classification'] == "Bourses"].iterrows():
-                # Trouver la première ligne vide entre 13 et 20
-                for row_num in range(13, 21):
-                    if ws[f"C{row_num}"].value is None:  # Vérifie si la cellule est vide
-                        ws[f"C{row_num}"].value = row['Credit']  # Insère la valeur
-                        ws[f"C{row_num}"].border = border_thick_left_right  # Applique la bordure
-                        break  # Sort de la boucle après l'insertion
+            # 🔹 **Insérer uniquement les valeurs non encore présentes**
+            for index, row in df[df['Mois Comptabilisé'] == mois].iterrows():
+                if row['Credit'] not in valeurs_existantes:  # Vérification anti-doublon
+                    # Trouver la première ligne vide
+                    for row_num in range(13, 21):
+                        if ws[f"C{row_num}"].value is None:  # Cellule vide
+                            ws[f"C{row_num}"].value = row['Credit']
+                            ws[f"C{row_num}"].border = border_thick_left_right
+                            valeurs_existantes.append(row['Credit'])  # Ajouter à la liste des valeurs existantes
+                            break  
 
-    # Sauvegarder les modifications dans le fichier Excel
+    # Sauvegarder les modifications
     wb.save(file_path)
 
 
@@ -918,7 +920,7 @@ def envoi_virement_interne(df, file_path):
                 ligne += 1
             
             # Insérer les données en colonne B et C
-            ws[f"B{ligne}"] = row["Libelle simplifie"]
+            ws[f"B{ligne}"] = row["Date operation"]
             ws[f"C{ligne}"] = row["Credit"]
             
             # Appliquer les bordures sur B et C
